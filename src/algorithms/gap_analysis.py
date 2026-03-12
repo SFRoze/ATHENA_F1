@@ -3,6 +3,7 @@ ATHENA F1 - Gap Analysis Algorithm
 Analyzes gaps between drivers for strategic opportunities.
 """
 
+import bisect
 import numpy as np
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
@@ -108,16 +109,9 @@ class GapAnalyzer:
             return 0.0  # No tire advantage
             
         # Success probability based on laps to close
-        if laps_to_close <= 3:
-            return 0.9
-        elif laps_to_close <= 6:
-            return 0.7
-        elif laps_to_close <= 10:
-            return 0.4
-        elif laps_to_close <= 15:
-            return 0.2
-        else:
-            return 0.05
+        _thresholds = [3, 6, 10, 15]
+        _probs      = [0.9, 0.7, 0.4, 0.2, 0.05]
+        return _probs[bisect.bisect_right(_thresholds, laps_to_close)]
             
     def calculate_gap_evolution(
         self,
@@ -212,14 +206,9 @@ class GapAnalyzer:
         }.get(track_name.lower(), 0.4)
         
         # Gap-based probability
-        if gap <= 0.3:
-            gap_prob = 0.9
-        elif gap <= 0.7:
-            gap_prob = 0.6
-        elif gap <= 1.0:
-            gap_prob = 0.3
-        else:
-            gap_prob = 0.0
+        _thresholds = [0.3, 0.7, 1.0]
+        _gap_probs  = [0.9, 0.6, 0.3, 0.0]
+        gap_prob = _gap_probs[bisect.bisect_right(_thresholds, gap)]
             
         # Pace advantage
         pace_diff = target_driver.lap_time_current - attacking_driver.lap_time_current
@@ -294,7 +283,7 @@ class GapAnalyzer:
             return None
             
         # Calculate success probability based on tire degradation
-        max_extended_laps = min(15, (85 - driver.tire_state.degradation_percent) // 2)
+        max_extended_laps = min(15, int((85 - driver.tire_state.degradation_percent) / 2))
         success_prob = min(0.8, max_extended_laps / 10.0)
         
         target = potential_targets[0]  # Focus on closest ahead
