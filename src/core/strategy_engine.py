@@ -71,11 +71,25 @@ class StrategyEngine:
         logger.info(f"Analyzing strategy for {driver.driver_name}")
         
         # Parallel analysis of different strategic aspects
-        pit_analysis, gap_opportunities, tire_strategy, weather_impact = await asyncio.gather(
-            self._analyze_pit_window(driver),
-            self._analyze_gap_opportunities(driver),
-            self._analyze_tire_strategy(driver),
+        pit_analysis_task = asyncio.create_task(
+            self._analyze_pit_window(driver)
+        )
+        gap_analysis_task = asyncio.create_task(
+            self._analyze_gap_opportunities(driver)
+        )
+        tire_analysis_task = asyncio.create_task(
+            self._analyze_tire_strategy(driver)
+        )
+        weather_analysis_task = asyncio.create_task(
             self._analyze_weather_impact(driver)
+        )
+        
+        # Wait for all analyses to complete
+        pit_analysis, gap_opportunities, tire_strategy, weather_impact = await asyncio.gather(
+            pit_analysis_task,
+            gap_analysis_task, 
+            tire_analysis_task,
+            weather_analysis_task
         )
         
         # Generate strategy options
@@ -102,16 +116,24 @@ class StrategyEngine:
             
             # Combine Monte Carlo and Neural Network insights
             if ranked_strategies:
-                mc_best, mc_score = ranked_strategies[0]
-                # Weighted combination: prefer neural if higher confidence, else MC, else fallback
+                mc_best = ranked_strategies[0][0]
+                mc_score = ranked_strategies[0][1]
+                
+                # Weighted combination of AI approaches
                 if neural_confidence > 0.7 and mc_score > 0.6:
+                    # High confidence from both systems
                     primary_option = neural_best if neural_confidence > mc_score else mc_best
                 elif neural_confidence > 0.7:
+                    # Neural network confident
                     primary_option = neural_best
                 elif mc_score > 0.6:
+                    # Monte Carlo confident
                     primary_option = mc_best
                 else:
+                    # Fall back to traditional approach
                     primary_option = max(strategy_options, key=lambda x: x.expected_value)
+                
+                # Select alternatives from Monte Carlo ranking
                 alternative_options = [s[0] for s in ranked_strategies[1:4] if s[0] != primary_option]
             else:
                 # Fallback to traditional ranking
@@ -131,11 +153,14 @@ class StrategyEngine:
             driver, primary_option, pit_analysis, gap_opportunities
         )
         
-        # Calculate confidence score (Monte Carlo always available if we reached here)
+        # Calculate ADVANCED confidence score using AI insights
         base_confidence = self._calculate_confidence(
             primary_option, alternative_options, self._race_state.track_state
         )
-        if len(strategy_options) > 1:
+        
+        # Enhance confidence with AI performance metrics
+        if hasattr(self, 'monte_carlo_engine') and len(strategy_options) > 1:
+            # Factor in Monte Carlo certainty
             mc_confidence_boost = min(0.2, self._decision_accuracy - 0.7)
             confidence_score = min(1.0, base_confidence + mc_confidence_boost)
         else:
