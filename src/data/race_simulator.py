@@ -274,74 +274,43 @@ class RaceSimulator:
     async def _simulate_pit_stops(self):
         """Simulate strategic pit stops"""
         for i, driver in enumerate(self.race_state.drivers):
-            # Simple pit stop decision logic
             should_pit = (
-                driver.tire_state.degradation_percent > 70 and
-                random.random() < 0.3  # 30% chance if tires degraded
-            ) or (
-                driver.tire_state.age_laps > 25 and
-                random.random() < 0.15  # 15% chance if tires old
+                (driver.tire_state.degradation_percent > 70 and random.random() < 0.3) or
+                (driver.tire_state.age_laps > 25 and random.random() < 0.15)
             )
-            
             if should_pit:
                 await self._execute_pit_stop(i)
                 
     async def _execute_pit_stop(self, driver_index: int):
         """Execute a pit stop for a driver"""
         driver = self.race_state.drivers[driver_index]
-        
-        # Choose new tire compound
         remaining_laps = self.total_laps - self.current_lap
+
         if remaining_laps < 15:
             new_compound = TireCompound.SOFT
         elif remaining_laps < 30:
             new_compound = random.choice([TireCompound.SOFT, TireCompound.MEDIUM])
         else:
             new_compound = random.choice([TireCompound.MEDIUM, TireCompound.HARD])
-            
-        # Create new tire state
-        compound_params = {
-            TireCompound.SOFT: (1.0, 25),
-            TireCompound.MEDIUM: (0.92, 35),
-            TireCompound.HARD: (0.85, 50)
-        }
-        grip, life = compound_params[new_compound]
-        
-        new_tire_state = TireState(
-            compound=new_compound,
-            age_laps=0,
-            degradation_percent=0.0,
-            estimated_life_remaining=life,
-            grip_level=grip
-        )
-        
-        # Time penalty for pit stop
-        pit_time_penalty = driver.pit_stop_time_avg + random.uniform(-1.0, 2.0)
-        new_gap_to_leader = driver.gap_to_leader + pit_time_penalty
-        
-        # Update driver
+
+        grip, life = {TireCompound.SOFT: (1.0, 25), TireCompound.MEDIUM: (0.92, 35), TireCompound.HARD: (0.85, 50)}[new_compound]
+        new_tire_state = TireState(compound=new_compound, age_laps=0, degradation_percent=0.0,
+                                   estimated_life_remaining=life, grip_level=grip)
+
         updated_driver = replace(
             driver,
             tire_state=new_tire_state,
             pit_stops_completed=driver.pit_stops_completed + 1,
-            gap_to_leader=new_gap_to_leader
+            gap_to_leader=driver.gap_to_leader + driver.pit_stop_time_avg + random.uniform(-1.0, 2.0)
         )
-        
         self.race_state.drivers[driver_index] = updated_driver
-        
         logger.info(f"{driver.driver_name} pitted for {new_compound.value} tires (Lap {self.current_lap})")
         
     def _update_drs_availability(self):
         """Update DRS availability based on gaps"""
         for i, driver in enumerate(self.race_state.drivers):
-            if driver.current_position == 1:
-                # Leader never has DRS
-                drs_available = False
-            else:
-                # DRS available if within 1 second of car ahead
-                drs_available = driver.gap_to_ahead < 1.0 and self.race_state.track_state.drs_enabled
-                
-            self.race_state.drivers[i] = replace(driver, drs_available=drs_available)
+            drs = driver.current_position != 1 and driver.gap_to_ahead < 1.0 and self.race_state.track_state.drs_enabled
+            self.race_state.drivers[i] = replace(driver, drs_available=drs)
             
     async def _check_race_events(self):
         """Check for and simulate race events like safety cars"""
@@ -395,22 +364,10 @@ class RaceSimulator:
     def _get_tire_degradation_rate(self, compound: TireCompound, track_temp: float) -> float:
         """Get tire degradation rate per lap"""
         base_rates = {
-            TireCompound.SOFT: 2.5,
-            TireCompound.MEDIUM: 1.5,
-            TireCompound.HARD: 0.8,
-            TireCompound.INTERMEDIATE: 2.0,
-            TireCompound.WET: 1.8
+            TireCompound.SOFT: 2.5, TireCompound.MEDIUM: 1.5, TireCompound.HARD: 0.8,
+            TireCompound.INTERMEDIATE: 2.0, TireCompound.WET: 1.8
         }
-        
-        base_rate = base_rates[compound]
-        
-        # Temperature effect
-        if track_temp > 50:
-            temp_multiplier = 1.0 + ((track_temp - 50) * 0.02)
-        else:
-            temp_multiplier = 1.0
-            
-        return base_rate * temp_multiplier
+        return base_rates[compound] * (1.0 + max(0, (track_temp - 50) * 0.02))
         
     @property
     def current_state(self) -> Optional[RaceState]:

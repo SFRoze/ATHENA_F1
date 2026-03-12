@@ -3,6 +3,7 @@ ATHENA F1 - Pit Strategy Calculator
 Calculates optimal pit stop timing and strategy options.
 """
 
+import bisect
 import numpy as np
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
@@ -65,14 +66,9 @@ class PitStrategyCalculator:
         effective_laps_to_close = effective_gap / tire_advantage_per_lap if tire_advantage_per_lap > 0 else float('inf')
         
         # Success probability based on gap and tire advantage
-        if effective_laps_to_close <= 5:  # Very likely
-            success_prob = 0.85
-        elif effective_laps_to_close <= 10:  # Possible
-            success_prob = 0.6
-        elif effective_laps_to_close <= 15:  # Unlikely
-            success_prob = 0.3
-        else:  # Very unlikely
-            success_prob = 0.1
+        _thresholds = [5, 10, 15]
+        _probs      = [0.85, 0.6, 0.3, 0.1]
+        success_prob = _probs[bisect.bisect_right(_thresholds, effective_laps_to_close)]
             
         # Predict new position (simplified)
         if success_prob > 0.5:
@@ -258,51 +254,22 @@ class PitStrategyCalculator:
                 opportunities.append(competitor.driver_id)
         return opportunities
         
-    def _calculate_safety_car_probability(
-        self, 
-        current_lap: int, 
-        total_laps: int, 
-        track_name: str
-    ) -> float:
+    def _calculate_safety_car_probability(self, current_lap: int, total_laps: int, track_name: str) -> float:
         """Calculate probability of safety car in next 10 laps"""
         race_progress = current_lap / total_laps
-        
-        # Base probability varies by track
-        base_prob = {
-            "monaco": 0.15,
-            "singapore": 0.12,
-            "baku": 0.18,
-            "default": 0.08
-        }.get(track_name.lower(), 0.08)
-        
-        # Higher probability in middle of race
-        if 0.2 < race_progress < 0.8:
-            return base_prob * 1.5
-        else:
-            return base_prob
+        base_prob = {"monaco": 0.15, "singapore": 0.12, "baku": 0.18}.get(track_name.lower(), 0.08)
+        return base_prob * (1.5 if 0.2 < race_progress < 0.8 else 1.0)
             
-    def _recommend_tire_compounds(
-        self, 
-        remaining_laps: int, 
-        weather, 
-        track_temp: float
-    ) -> List[TireCompound]:
+    def _recommend_tire_compounds(self, remaining_laps: int, weather, track_temp: float) -> List[TireCompound]:
         """Recommend tire compounds for next stint"""
-        recommendations = []
-        
-        if weather.value in ['light_rain', 'heavy_rain']:
-            recommendations.append(TireCompound.INTERMEDIATE)
-            if weather.value == 'heavy_rain':
-                recommendations.append(TireCompound.WET)
-        else:
-            if remaining_laps < 15:
-                recommendations.extend([TireCompound.SOFT, TireCompound.MEDIUM])
-            elif remaining_laps < 30:
-                recommendations.extend([TireCompound.MEDIUM, TireCompound.HARD])
-            else:
-                recommendations.append(TireCompound.HARD)
-                
-        return recommendations
+        if weather.value in ('light_rain', 'heavy_rain'):
+            return ([TireCompound.INTERMEDIATE, TireCompound.WET]
+                    if weather.value == 'heavy_rain' else [TireCompound.INTERMEDIATE])
+        if remaining_laps < 15:
+            return [TireCompound.SOFT, TireCompound.MEDIUM]
+        if remaining_laps < 30:
+            return [TireCompound.MEDIUM, TireCompound.HARD]
+        return [TireCompound.HARD]
         
     def _simulate_single_pit_scenario(
         self,

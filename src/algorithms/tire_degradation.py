@@ -3,6 +3,7 @@ ATHENA F1 - Tire Degradation Algorithm
 Physics-based tire performance prediction model.
 """
 
+import bisect
 import numpy as np
 from typing import Dict, Tuple, Optional
 from dataclasses import dataclass
@@ -222,26 +223,11 @@ class TireDegradationModel:
             
         return comparison
         
-    def _calculate_temperature_factor(
-        self,
-        current_temp: float,
-        optimal_range: Tuple[float, float],
-        sensitivity: float
-    ) -> float:
+    def _calculate_temperature_factor(self, current_temp: float, optimal_range: Tuple[float, float], sensitivity: float) -> float:
         """Calculate temperature impact on tire degradation"""
         optimal_min, optimal_max = optimal_range
-        
-        if optimal_min <= current_temp <= optimal_max:
-            # In optimal range
-            return 1.0
-        elif current_temp < optimal_min:
-            # Too cold
-            temp_diff = optimal_min - current_temp
-            return 1.0 + (temp_diff * sensitivity * 0.02)  # 2% per degree
-        else:
-            # Too hot
-            temp_diff = current_temp - optimal_max
-            return 1.0 + (temp_diff * sensitivity * 0.03)  # 3% per degree
+        delta = max(optimal_min - current_temp, 0) * 0.02 + max(current_temp - optimal_max, 0) * 0.03
+        return 1.0 + delta * sensitivity
             
     def calculate_lap_time_impact(
         self,
